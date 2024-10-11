@@ -476,6 +476,15 @@ config EFI_RISCV_BOOT_PROTOCOL
 	  replace the transfer via the device-tree. The latter is not
 	  possible on systems using ACPI.
 
+config EFI_HTTP_PROTOCOL
+	bool "EFI_HTTP_PROTOCOL support"
+	default y
+	depends on CMD_WGET
+	help
+	  Provides an EFI HTTP driver implementing the EFI_HTTP_PROTOCOL. It
+	  supports EFI_IP4_CONFIG2_PROTOCOL and EFI_HTTP_SERVICE_BINDING_PROTOCOL
+	  for configuration.
+
 endmenu
 
 menu "Misc options"

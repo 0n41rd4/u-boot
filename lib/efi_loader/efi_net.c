@@ -30,6 +30,7 @@ static size_t *receive_lengths;
 static int rx_packet_idx;
 static int rx_packet_num;
 static struct efi_net_obj *netobj;
+static struct efi_device_path *net_dp;
 
 /*
  * The notification function of this event is called in every timer cycle
@@ -56,6 +57,10 @@ struct efi_net_obj {
 	struct efi_simple_network_mode net_mode;
 	struct efi_pxe_base_code_protocol pxe;
 	struct efi_pxe_mode pxe_mode;
+#ifdef CONFIG_EFI_HTTP_PROTOCOL
+	struct efi_ip4_config2_protocol ip4_config2;
+	struct efi_service_binding_protocol http_service_binding;
+#endif 
 };
 
 /*
@@ -901,10 +906,14 @@ efi_status_t efi_net_register(void)
 			     &netobj->net);
 	if (r != EFI_SUCCESS)
 		goto failure_to_add_protocol;
+	if (net_dp == NULL)
+		efi_net_set_dp("Net");
 	r = efi_add_protocol(&netobj->header, &efi_guid_device_path,
-			     efi_dp_from_eth());
-	if (r != EFI_SUCCESS)
+			     net_dp);
+	if (r != EFI_SUCCESS){
 		goto failure_to_add_protocol;
+		debug("\nfailed\n");
+	}
 	r = efi_add_protocol(&netobj->header, &efi_pxe_base_code_protocol_guid,
 			     &netobj->pxe);
 	if (r != EFI_SUCCESS)
@@ -981,6 +990,19 @@ efi_status_t efi_net_register(void)
 		return r;
 	}
 
+#ifdef CONFIG_EFI_HTTP_PROTOCOL
+	r = efi_http_register(&netobj->header, &netobj->http_service_binding, &netobj->ip4_config2);
+	if (r != EFI_SUCCESS)
+		goto failure_to_add_protocol;
+	/* 
+	 * No harm on doing the following. If the pxe handle is present the client could
+	 * find it and try to get its IP from it. In here the pxe handle is present but the
+	 * pxe protocol is not yet implmenented, so we add this on the meantime.
+	 */
+	memcpy(&netobj->pxe_mode.station_ip, &net_ip, sizeof(__be32));
+	memcpy(&netobj->pxe_mode.subnet_mask, &net_netmask, sizeof(__be32));
+#endif 
+
 	return EFI_SUCCESS;
 failure_to_add_protocol:
 	printf("ERROR: Failure to add protocol\n");
@@ -997,3 +1019,14 @@ out_of_resources:
 	printf("ERROR: Out of memory\n");
 	return EFI_OUT_OF_RESOURCES;
 }
+
+
+void efi_net_set_dp(const char *dev)
+{
+	if (!strcmp(dev, "Net")) {
+		net_dp = efi_dp_from_eth();
+	} else if (IS_ENABLED(CONFIG_EFI_HTTP_PROTOCOL) && !strcmp(dev, "Http")) {
+		net_dp = efi_dp_from_http();
+	}
+}
+
