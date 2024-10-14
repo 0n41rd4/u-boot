@@ -22,15 +22,18 @@ DECLARE_GLOBAL_DATA_PTR;
 /* The default, change with environment variable 'httpdstp' */
 #define SERVER_PORT		80
 
-static const char bootfile1[] = "GET ";
+static const char bootfileGET[] = "GET ";
+static const char bootfileHEAD[] = "HEAD ";
 static const char bootfile3[] = " HTTP/1.0\r\n\r\n";
 static const char http_eom[] = "\r\n\r\n";
-static const char http_ok[] = "200";
-static const char content_len[] = "Content-Length";
 static const char linefeed[] = "\r\n";
 static struct in_addr web_server_ip;
 static int our_port;
 static int wget_timeout_count;
+struct wget_http_info current_http_info = {
+	.method = WGET_HTTP_METHOD_GET,
+	.set_bootdev = true,
+};
 
 struct pkt_qd {
 	uchar *pkt;
@@ -46,7 +49,6 @@ struct pkt_qd {
 #define PKTQ_SZ (PKTBUFSRX / 4)
 static struct pkt_qd pkt_q[PKTQ_SZ];
 static int pkt_q_idx;
-static unsigned long content_length;
 static unsigned int packets;
 
 static unsigned int initial_data_seq_num;
@@ -132,8 +134,18 @@ static void wget_send_stored(void)
 			IP_TCP_HDR_SIZE + TCP_TSOPT_SIZE + 2;
 		offset = ptr;
 
-		memcpy(offset, &bootfile1, strlen(bootfile1));
-		offset += strlen(bootfile1);
+		switch (current_http_info.method)
+		{
+		case WGET_HTTP_METHOD_HEAD:
+			memcpy(offset, &bootfileHEAD, strlen(bootfileHEAD));
+			offset += strlen(bootfileHEAD);
+			break;
+		case WGET_HTTP_METHOD_GET:
+		default:
+			memcpy(offset, &bootfileGET, strlen(bootfileGET));
+			offset += strlen(bootfileGET);
+			break;
+		}
 
 		memcpy(offset, image_url, strlen(image_url));
 		offset += strlen(image_url);
@@ -193,6 +205,84 @@ static void wget_timeout_handler(void)
 #define PKT_QUEUE_OFFSET 0x20000
 #define PKT_QUEUE_PACKET_SIZE 0x800
 
+static void wget_set_http_status_code(const uchar *pkt)
+{
+	const char *first_space = strchr(pkt, ' ');
+	if (!first_space) {
+		current_http_info.status_code = -1;
+		return;
+	}
+
+	const char *second_space = strchr(first_space + 1, ' ');
+	if (!second_space) {
+		current_http_info.status_code = -1;
+		return;
+	}
+
+	char *end;
+	current_http_info.status_code = simple_strtoul(first_space + 1, &end, 10);
+
+	if (second_space != end)
+		current_http_info.status_code = -1;
+
+	return;
+}
+
+static void wget_parse_http_headers(const uchar *pkt, struct wget_http_info *info)
+{
+	// Populate info with http headers.
+
+	info->num_headers = 0;
+
+	const uchar *line_start = pkt;
+	const uchar *line_end;
+	ulong count;
+
+	// Skip the first line (request or status line)
+	line_end = strstr(line_start, "\r\n");
+	if (line_end != NULL) {
+		line_start = line_end + 2;
+	}
+
+	while ((line_end = strstr(line_start, "\r\n")) != NULL) {
+
+		count = info->num_headers;
+		if (line_start == line_end || count >= MAX_HTTP_HEADERS) {
+			break;
+		}
+
+		struct wget_http_header *current_header = &info->headers[count];
+		const uchar *separator = strchr(line_start, ':');
+
+		if (separator) {
+			size_t name_length = separator - line_start;
+			++separator;
+			while (*separator == ' ') // Skip leading spaces of an HTTP header value
+				++separator;
+			size_t value_length = line_end - separator;
+
+			if (name_length < MAX_HTTP_HEADER_NAME && value_length < MAX_HTTP_HEADER_VALUE) {
+				strncpy(current_header->name, line_start, name_length);
+				current_header->name[name_length] = '\0';
+				strncpy(current_header->value, separator, value_length);
+				current_header->value[value_length] = '\0';
+
+				if (!strncmp((const char *)current_header->name, "Content-Length", 14)) {
+					info->content_length = strtoul((const char*)current_header->value, 0, 10);
+					debug_cond(DEBUG_WGET, "Content-Length: %lu\n", info->content_length);
+				}
+
+				strncpy(current_header->value, separator, value_length);
+				current_header->value[value_length] = '\0';
+
+				info->num_headers++;
+			}
+		}
+
+		line_start = line_end + 2;
+	}
+}
+
 static void wget_connected(uchar *pkt, unsigned int tcp_seq_num,
 			   u8 action, unsigned int tcp_ack_num, unsigned int len)
 {
@@ -241,7 +331,11 @@ static void wget_connected(uchar *pkt, unsigned int tcp_seq_num,
 		initial_data_seq_num = tcp_seq_num + hlen;
 		next_data_seq_num    = tcp_seq_num + len;
 
-		if (strstr((char *)pkt, http_ok) == 0) {
+		wget_set_http_status_code(pkt);
+		wget_parse_http_headers(pkt, &current_http_info);
+		debug_cond(DEBUG_WGET, "HTTP Status Code: %ld\n", current_http_info.status_code);
+
+		if (current_http_info.status_code != 200) {
 			debug_cond(DEBUG_WGET,
 				   "wget: Connected Bad Xfer\n");
 			wget_loop_state = NETLOOP_FAIL;
@@ -250,17 +344,6 @@ static void wget_connected(uchar *pkt, unsigned int tcp_seq_num,
 			debug_cond(DEBUG_WGET,
 				   "wget: Connected Pkt %p hlen %x\n",
 				   pkt, hlen);
-
-			pos = strstr((char *)pkt, content_len);
-			if (!pos) {
-				content_length = -1;
-			} else {
-				pos += sizeof(content_len) + 2;
-				strict_strtoul(pos, 10, &content_length);
-				debug_cond(DEBUG_WGET,
-					   "wget: Connected Len %lu\n",
-					   content_length);
-			}
 
 			net_boot_file_size = 0;
 
@@ -397,10 +480,11 @@ static void wget_handler(uchar *pkt, u16 dport,
 	case WGET_TRANSFERRED:
 		printf("Packets received %d, Transfer Successful\n", packets);
 		net_set_state(wget_loop_state);
-		efi_set_bootdev("Net", "", image_url,
-				map_sysmem(image_load_addr, 0),
-				net_boot_file_size);
-		env_set_hex("filesize", net_boot_file_size);
+		if (current_http_info.method == WGET_HTTP_METHOD_GET && current_http_info.set_bootdev) {
+			efi_set_bootdev("Net", "", image_url,
+					map_sysmem(image_load_addr, 0),
+					net_boot_file_size);
+		}
 		break;
 	}
 }
@@ -428,7 +512,7 @@ void wget_start(void)
 	image_url = strchr(net_boot_file_name, ':');
 	if (image_url > 0) {
 		web_server_ip = string_to_ip(net_boot_file_name);
-		++image_url;
+		image_url = strchr(image_url, '/'); /* This is the same as ++image_url if no port and the path starts with '/'.*/
 		net_server_ip = web_server_ip;
 	} else {
 		web_server_ip = net_server_ip;
