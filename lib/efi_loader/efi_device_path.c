@@ -974,6 +974,40 @@ struct efi_device_path __maybe_unused *efi_dp_from_eth(void)
 	return start;
 }
 
+struct efi_device_path *efi_dp_from_ipv4(void)
+{
+	struct efi_device_path *dp1, *dp2;
+	efi_uintn_t ipv4dp_len;
+	struct efi_device_path_ipv4 *ipv4dp;
+	char *pos;
+
+	ipv4dp_len = sizeof(struct efi_device_path_ipv4);
+	ipv4dp = efi_alloc(ipv4dp_len + sizeof(END));
+
+	if (!ipv4dp) {
+		log_err("Out of memory\n");
+		return NULL;
+	}
+
+	ipv4dp->dp.type = DEVICE_PATH_TYPE_MESSAGING_DEVICE;
+	ipv4dp->dp.sub_type = DEVICE_PATH_SUB_TYPE_MSG_IPV4;
+	ipv4dp->dp.length = ipv4dp_len;
+	ipv4dp->protocol = 6;
+	memcpy((void *)&ipv4dp->local_ip_address,(void *)&net_ip, 4);
+	memcpy((void *)&ipv4dp->subnet_mask, (void *)&net_netmask, 4);
+	memcpy((void *)&ipv4dp->subnet_mask, (void *)&net_server_ip, 4);
+	pos = (char *)ipv4dp + ipv4dp_len;
+	memcpy(pos, &END, sizeof(END));
+
+	dp1 = efi_dp_from_eth();
+	dp2 = efi_dp_concat(dp1, (const struct efi_device_path *)ipv4dp, 0);
+
+	efi_free_pool(ipv4dp);
+	efi_free_pool(dp1);
+
+	return dp2;
+}
+
 /* Construct a device-path for memory-mapped image */
 struct efi_device_path *efi_dp_from_mem(uint32_t memory_type,
 					uint64_t start_address,
