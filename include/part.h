@@ -687,6 +687,8 @@ static inline struct part_driver *part_driver_get_first(void)
  */
 int part_get_type_by_name(const char *name);
 
+struct part_driver *part_driver_get_type(int part_type);
+
 /**
  * part_get_bootable() - Find the first bootable partition
  *

@@ -32,7 +32,7 @@
  * @part_type: Partition type to find the driver for
  * Return: Driver for that type, or NULL if none
  */
-static struct part_driver *part_driver_get_type(int part_type)
+struct part_driver *part_driver_get_type(int part_type)
 {
 	struct part_driver *drv =
 		ll_entry_start(struct part_driver, part_driver);
