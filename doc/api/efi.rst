@@ -145,7 +145,7 @@ RAM disk. U-Boot can be configured to provide an implementation.
 Network protocols
 ~~~~~~~~~~~~~~~~~
 
-.. kernel-doc:: lib/efi_loader/efi_net.c
+.. kernel-doc:: lib/efi_loader/net/efi_net.c
    :internal:
 
 Random number generator protocol
