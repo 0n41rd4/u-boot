@@ -24,6 +24,7 @@ static const efi_guid_t efi_http_guid = EFI_HTTP_PROTOCOL_GUID;
  *
  * @http:			EFI_HTTP_PROTOCOL interface
  * @handle:			handle to efi object
+ * @parent:			service binding that created this child
  * @configured:			configuration status
  * @http_load_addr:		data buffer
  * @file_size:			size of data
@@ -391,7 +392,7 @@ static efi_status_t EFIAPI efi_http_service_binding_create_child(
 	if (!child_handle)
 		return EFI_EXIT(EFI_INVALID_PARAMETER);
 
-	new_instance = calloc(1, sizeof(struct efi_http_instance));
+	new_instance = calloc(1, sizeof(*new_instance));
 	if (!new_instance) {
 		ret = EFI_OUT_OF_RESOURCES;
 		goto failure_to_add_protocol;
@@ -482,24 +483,29 @@ static efi_status_t EFIAPI efi_http_service_binding_destroy_child(
 }
 
 /**
- * efi_http_register() - register the http protocol
+ * efi_http_install() - install the EFI_HTTP_SERVICE_BINDING_PROTOCOL
  *
+ * @handle:	handle to install the protocol
  */
-efi_status_t efi_http_register(const efi_handle_t handle,
-			       struct efi_service_binding_protocol *http_service_binding)
+efi_status_t efi_http_install(const efi_handle_t handle)
 {
 	efi_status_t r = EFI_SUCCESS;
+	struct efi_service_binding_protocol *http_service_binding;
 
-	r = efi_add_protocol(handle, &efi_http_service_binding_guid,
-			     http_service_binding);
+	r = efi_allocate_pool(EFI_LOADER_DATA,
+			      sizeof(*http_service_binding),
+			      (void **)&http_service_binding);
 	if (r != EFI_SUCCESS)
-		goto failure_to_add_protocol;
+		return r;
 
 	http_service_binding->create_child = efi_http_service_binding_create_child;
 	http_service_binding->destroy_child = efi_http_service_binding_destroy_child;
 
-	return EFI_SUCCESS;
-failure_to_add_protocol:
+	r = efi_add_protocol(handle, &efi_http_service_binding_guid,
+			     http_service_binding);
+	if (r != EFI_SUCCESS)
+		efi_free_pool(http_service_binding);
+
 	return r;
 }
 

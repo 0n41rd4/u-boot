@@ -190,20 +190,20 @@ static efi_status_t EFIAPI efi_ip4_config2_unregister_notify(struct efi_ip4_conf
 }
 
 /**
- * efi_ipconfig_register() - register the ip4_config2 protocol
+ * efi_ip4_config2_install() - install the EFI_IP4_CONFIG2_PROTOCOL
  *
+ * @handle	handle to install the protocol
  */
-efi_status_t efi_ipconfig_register(const efi_handle_t handle,
-				   struct efi_ip4_config2_protocol *ip4config)
+efi_status_t efi_ip4_config2_install(const efi_handle_t handle)
 {
-	efi_status_t r = EFI_SUCCESS;
+	efi_status_t r;
+	struct efi_ip4_config2_protocol *ip4config;
 
-	r = efi_add_protocol(handle, &efi_ip4_config2_guid,
-			     ip4config);
-	if (r != EFI_SUCCESS) {
-		log_err("ERROR: Failure to add protocol\n");
+	r = efi_allocate_pool(EFI_LOADER_DATA,
+			      sizeof(*ip4config),
+			      (void **)&ip4config);
+	if (r != EFI_SUCCESS)
 		return r;
-	}
 
 	memcpy(current_mac_addr, eth_get_ethaddr(), 6);
 
@@ -212,5 +212,10 @@ efi_status_t efi_ipconfig_register(const efi_handle_t handle,
 	ip4config->register_data_notify = efi_ip4_config2_register_notify;
 	ip4config->unregister_data_notify = efi_ip4_config2_unregister_notify;
 
-	return EFI_SUCCESS;
+	r = efi_add_protocol(handle, &efi_ip4_config2_guid,
+			     ip4config);
+	if (r != EFI_SUCCESS)
+		efi_free_pool(ip4config);
+
+	return r;
 }

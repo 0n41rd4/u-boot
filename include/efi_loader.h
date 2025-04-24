@@ -682,11 +682,9 @@ efi_status_t efi_gop_register(void);
 efi_status_t efi_net_register(struct udevice *dev);
 efi_status_t efi_net_do_start(struct udevice *dev);
 /* Called by efi_net_register to make the ip4 config2 protocol available */
-efi_status_t efi_ipconfig_register(const efi_handle_t handle,
-				   struct efi_ip4_config2_protocol *ip4config);
+efi_status_t efi_ip4_config2_install(const efi_handle_t handle);
 /* Called by efi_net_register to make the http protocol available */
-efi_status_t efi_http_register(const efi_handle_t handle,
-			       struct efi_service_binding_protocol *http_service_binding);
+efi_status_t efi_http_install(const efi_handle_t handle);
 /* Called by bootefi to make the watchdog available */
 efi_status_t efi_watchdog_register(void);
 efi_status_t efi_initrd_register(struct efi_device_path *dp_initrd);

@@ -32,6 +32,8 @@
 const efi_guid_t efi_net_guid = EFI_SIMPLE_NETWORK_PROTOCOL_GUID;
 static const efi_guid_t efi_pxe_base_code_protocol_guid =
 					EFI_PXE_BASE_CODE_PROTOCOL_GUID;
+static const efi_guid_t efi_http_service_binding_guid =
+					EFI_HTTP_SERVICE_BINDING_PROTOCOL_GUID;
 
 struct dp_entry {
 	struct efi_device_path *net_dp;
@@ -74,8 +76,6 @@ static int next_dhcp_entry;
  * @net_mode:			status of the network interface
  * @pxe:			PXE base code protocol interface
  * @pxe_mode:			status of the PXE base code protocol
- * @ip4_config2:		IP4 Config2 protocol interface
- * @http_service_binding:	Http service binding protocol interface
  * @new_tx_packet:		new transmit packet
  * @transmit_buffer:	transmit buffer
  * @receive_buffer:		array of receive buffers
@@ -93,12 +93,6 @@ struct efi_net_obj {
 	struct efi_simple_network_mode net_mode;
 	struct efi_pxe_base_code_protocol pxe;
 	struct efi_pxe_mode pxe_mode;
-#if IS_ENABLED(CONFIG_EFI_IP4_CONFIG2_PROTOCOL)
-	struct efi_ip4_config2_protocol ip4_config2;
-#endif
-#if IS_ENABLED(CONFIG_EFI_HTTP_PROTOCOL)
-	struct efi_service_binding_protocol http_service_binding;
-#endif
 	void *new_tx_packet;
 	void *transmit_buffer;
 	uchar **receive_buffer;
@@ -1286,13 +1280,12 @@ efi_status_t efi_net_register(struct udevice *dev)
 	}
 
 #if IS_ENABLED(CONFIG_EFI_IP4_CONFIG2_PROTOCOL)
-	r = efi_ipconfig_register(&netobj->header, &netobj->ip4_config2);
+	r = efi_ip4_config2_install(&netobj->header);
 	if (r != EFI_SUCCESS)
 		goto failure_to_add_protocol;
 #endif
-
 #ifdef CONFIG_EFI_HTTP_PROTOCOL
-	r = efi_http_register(&netobj->header, &netobj->http_service_binding);
+	r = efi_http_install(&netobj->header);
 	if (r != EFI_SUCCESS)
 		goto failure_to_add_protocol;
 #endif
@@ -1646,6 +1639,7 @@ efi_status_t efi_net_do_request(u8 *url, enum efi_http_method method, void **buf
 	int wget_ret;
 	static bool last_head;
 	struct udevice *dev;
+	struct efi_handler *phandler;
 	int i;
 
 	if (!buffer || !file_size || !parent)
@@ -1657,8 +1651,16 @@ efi_status_t efi_net_do_request(u8 *url, enum efi_http_method method, void **buf
 	// Set corresponding udevice
 	dev = NULL;
 	for (i = 0; i < MAX_EFI_NET_OBJS; i++) {
-		if (net_objs[i] && &net_objs[i]->http_service_binding == parent)
+		if (!net_objs[i])
+			continue;
+
+		ret = efi_search_protocol(&net_objs[i]->header,
+					  &efi_http_service_binding_guid,
+					  &phandler);
+		if (ret == EFI_SUCCESS && phandler == (void *)parent) {
 			dev = net_objs[i]->dev;
+			break;
+		}
 	}
 	if (!dev)
 		return EFI_ABORTED;
