@@ -14,11 +14,24 @@
 
 static const efi_guid_t efi_ip4_config2_guid = EFI_IP4_CONFIG2_PROTOCOL_GUID;
 
-struct efi_ip4_config2_manual_address current_http_ip;
-static enum efi_ip4_config2_policy current_policy;
-static char current_mac_addr[32];
-
 /* EFI_IP4_CONFIG2_PROTOCOL */
+
+/**
+ * struct efi_ip4_config2_extended_protocol - EFI object extending the
+ *					      EFI_IP4_CONFIG2_PROTOCOL
+ *					      interface
+ *
+ * @ip4_config2:		EFI_IP4_CONFIG2_PROTOCOL interface
+ * @dev:			net udevice
+ * @current_address		current address
+ * @current_policy		current policy
+ */
+struct efi_ip4_config2_extended_protocol {
+	struct efi_ip4_config2_protocol ip4_config2;
+	struct udevice *dev;
+	struct efi_ip4_config2_manual_address current_address;
+	enum efi_ip4_config2_policy current_policy;
+};
 
 /*
  * efi_ip4_config2_set_data() -  Set the configuration for the EFI IPv4 network
@@ -41,32 +54,38 @@ static efi_status_t EFIAPI efi_ip4_config2_set_data(struct efi_ip4_config2_proto
 {
 	EFI_ENTRY("%p, %d, %zu, %p", this, data_type, data_size, data);
 	efi_status_t ret = EFI_SUCCESS;
+	struct efi_ip4_config2_extended_protocol *ipconfig;
 
 	if (!this || (data && !data_size) || (!data && data_size))
 		return EFI_EXIT(EFI_INVALID_PARAMETER);
+
+	ipconfig = (struct efi_ip4_config2_extended_protocol *)this;
+	if (!ipconfig->dev)
+		return EFI_EXIT(EFI_NOT_FOUND);
 
 	switch (data_type) {
 	case EFI_IP4_CONFIG2_DATA_TYPE_INTERFACEINFO:
 		return EFI_EXIT(EFI_WRITE_PROTECTED);
 	case EFI_IP4_CONFIG2_DATA_TYPE_MANUAL_ADDRESS:
-		if (current_policy != EFI_IP4_CONFIG2_POLICY_STATIC)
+		if (ipconfig->current_policy != EFI_IP4_CONFIG2_POLICY_STATIC)
 			return EFI_EXIT(EFI_WRITE_PROTECTED);
 		if (!data_size && !data) {
-			memset((void *)&current_http_ip, 0,
-			       sizeof(current_http_ip));
+			memset((void *)&ipconfig->current_address, 0,
+			       sizeof(ipconfig->current_address));
 			return EFI_EXIT(EFI_SUCCESS);
 		}
 		if (data && data_size == sizeof(struct efi_ip4_config2_manual_address)) {
-			memcpy((void *)&current_http_ip, data,
+			memcpy((void *)&ipconfig->current_address, data,
 			       sizeof(struct efi_ip4_config2_manual_address));
-			efi_net_set_addr(&current_http_ip.address,
-					 &current_http_ip.subnet_mask, NULL, NULL);
+			efi_net_set_addr(&ipconfig->current_address.address,
+					 &ipconfig->current_address.subnet_mask,
+					 NULL, ipconfig->dev);
 			return EFI_EXIT(EFI_SUCCESS);
 		}
 		return EFI_EXIT(EFI_BAD_BUFFER_SIZE);
 	case EFI_IP4_CONFIG2_DATA_TYPE_POLICY:
 		if (data && data_size == sizeof(enum efi_ip4_config2_policy)) {
-			current_policy = *(enum efi_ip4_config2_policy *)data;
+			ipconfig->current_policy = *(enum efi_ip4_config2_policy *)data;
 			return EFI_EXIT(EFI_SUCCESS);
 		}
 		return EFI_EXIT(EFI_BAD_BUFFER_SIZE);
@@ -101,6 +120,7 @@ static efi_status_t EFIAPI efi_ip4_config2_get_data(struct efi_ip4_config2_proto
 
 	efi_status_t ret = EFI_SUCCESS;
 	struct efi_ip4_config2_interface_info *info;
+	struct efi_ip4_config2_extended_protocol *ipconfig;
 	int tmp;
 
 	if (!this || !data_size)
@@ -108,6 +128,10 @@ static efi_status_t EFIAPI efi_ip4_config2_get_data(struct efi_ip4_config2_proto
 
 	if (*data_size && !data)
 		return EFI_EXIT(EFI_INVALID_PARAMETER);
+
+	ipconfig = (struct efi_ip4_config2_extended_protocol *)this;
+	if (!ipconfig->dev)
+		return EFI_EXIT(EFI_NOT_FOUND);
 
 	tmp = sizeof(struct efi_ip4_config2_interface_info) + sizeof(struct efi_ip4_route_table);
 
@@ -122,7 +146,7 @@ static efi_status_t EFIAPI efi_ip4_config2_get_data(struct efi_ip4_config2_proto
 		memset(info, 0, sizeof(*info));
 
 		info->hw_address_size = 6;
-		memcpy(info->hw_address.mac_addr, current_mac_addr, 6);
+		memcpy(info->hw_address.mac_addr, eth_get_ethaddr_from_dev(ipconfig->dev), 6);
 		// Set the route table size
 
 		info->route_table_size = 0;
@@ -133,8 +157,9 @@ static efi_status_t EFIAPI efi_ip4_config2_get_data(struct efi_ip4_config2_proto
 			return EFI_EXIT(EFI_BUFFER_TOO_SMALL);
 		}
 
-		efi_net_get_addr(&current_http_ip.address, &current_http_ip.subnet_mask, NULL, NULL);
-		memcpy(data, (void *)&current_http_ip,
+		efi_net_get_addr(&ipconfig->current_address.address,
+				 &ipconfig->current_address.subnet_mask, NULL, ipconfig->dev);
+		memcpy(data, (void *)&ipconfig->current_address,
 		       sizeof(struct efi_ip4_config2_manual_address));
 
 		break;
@@ -197,25 +222,25 @@ static efi_status_t EFIAPI efi_ip4_config2_unregister_notify(struct efi_ip4_conf
 efi_status_t efi_ip4_config2_install(const efi_handle_t handle)
 {
 	efi_status_t r;
-	struct efi_ip4_config2_protocol *ip4config;
+	struct efi_ip4_config2_extended_protocol *ipconfig;
 
 	r = efi_allocate_pool(EFI_LOADER_DATA,
-			      sizeof(*ip4config),
-			      (void **)&ip4config);
+			      sizeof(*ipconfig),
+			      (void **)&ipconfig);
 	if (r != EFI_SUCCESS)
 		return r;
 
-	memcpy(current_mac_addr, eth_get_ethaddr(), 6);
-
-	ip4config->set_data = efi_ip4_config2_set_data;
-	ip4config->get_data = efi_ip4_config2_get_data;
-	ip4config->register_data_notify = efi_ip4_config2_register_notify;
-	ip4config->unregister_data_notify = efi_ip4_config2_unregister_notify;
+	ipconfig->dev = handle->dev;
+	ipconfig->ip4_config2.set_data = efi_ip4_config2_set_data;
+	ipconfig->ip4_config2.get_data = efi_ip4_config2_get_data;
+	ipconfig->ip4_config2.register_data_notify = efi_ip4_config2_register_notify;
+	ipconfig->ip4_config2.unregister_data_notify = efi_ip4_config2_unregister_notify;
+	ipconfig->current_policy = EFI_IP4_CONFIG2_POLICY_MAX;
 
 	r = efi_add_protocol(handle, &efi_ip4_config2_guid,
-			     ip4config);
+			     &ipconfig->ip4_config2);
 	if (r != EFI_SUCCESS)
-		efi_free_pool(ip4config);
+		efi_free_pool(ipconfig);
 
 	return r;
 }
