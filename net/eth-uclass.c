@@ -175,16 +175,21 @@ struct udevice *eth_get_dev_by_name(const char *devname)
 	return NULL;
 }
 
-unsigned char *eth_get_ethaddr(void)
+unsigned char *eth_get_ethaddr_from_dev(struct udevice *dev)
 {
 	struct eth_pdata *pdata;
 
-	if (eth_get_dev()) {
-		pdata = dev_get_plat(eth_get_dev());
+	if (dev) {
+		pdata = dev_get_plat(dev);
 		return pdata->enetaddr;
 	}
 
 	return NULL;
+}
+
+unsigned char *eth_get_ethaddr(void)
+{
+	return eth_get_ethaddr_from_dev(eth_get_dev());
 }
 
 /* Set active state without calling start on the driver */

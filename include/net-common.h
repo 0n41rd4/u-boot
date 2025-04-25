@@ -292,6 +292,7 @@ struct eth_ops {
 
 struct udevice *eth_get_dev(void); /* get the current device */
 void eth_set_dev(struct udevice *dev); /* set a device */
+unsigned char *eth_get_ethaddr_from_dev(struct udevice *dev); /* get a device's MAC */
 unsigned char *eth_get_ethaddr(void); /* get the current device MAC */
 int eth_rx(void);                      /* Check for received packets */
 void eth_halt(void);			/* stop SCC */
