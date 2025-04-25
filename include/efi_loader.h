@@ -330,8 +330,6 @@ extern const efi_guid_t efi_guid_host_dev;
 #endif
 /* GUID of the EFI_BLOCK_IO_PROTOCOL */
 extern const efi_guid_t efi_block_io_guid;
-/* GUID of the EFI_SIMPLE_NETWORK_PROTOCOL */
-extern const efi_guid_t efi_net_guid;
 extern const efi_guid_t efi_global_variable_guid;
 extern const efi_guid_t efi_guid_console_control;
 extern const efi_guid_t efi_guid_device_path;
@@ -681,9 +679,13 @@ efi_status_t efi_gop_register(void);
 /* Called by bootefi to make the network interface available */
 efi_status_t efi_net_register(struct udevice *dev);
 efi_status_t efi_net_do_start(struct udevice *dev);
-/* Called by efi_net_register to make the ip4 config2 protocol available */
+/* Called by efi_net_register to install EFI_SIMPLE_NETWORK_PROTOCOL */
+efi_status_t efi_simple_network_install(const efi_handle_t handle, struct udevice *dev);
+/* Called by efi_net_register to install EFI_PXE_BASE_CODE_PROTOCOL */
+efi_status_t efi_pxe_install(const efi_handle_t handle, struct efi_pxe_packet *dhcp_ack);
+/* Called by efi_net_register to install EFI_IP4_CONFIG2_PROTOCOL */
 efi_status_t efi_ip4_config2_install(const efi_handle_t handle);
-/* Called by efi_net_register to make the http protocol available */
+/* Called by efi_net_register to install EFI_HTTP_SERVICE_BINDING_PROTOCOL */
 efi_status_t efi_http_install(const efi_handle_t handle);
 /* Called by bootefi to make the watchdog available */
 efi_status_t efi_watchdog_register(void);

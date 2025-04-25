@@ -17,6 +17,8 @@
 #include <efi_selftest.h>
 #include <net.h>
 
+static const efi_guid_t efi_net_guid = EFI_SIMPLE_NETWORK_PROTOCOL_GUID;
+
 /*
  * MAC address for broadcasts
  */
@@ -65,7 +67,7 @@ struct dhcp {
 } __packed;
 
 static struct efi_boot_services *boottime;
-static struct efi_simple_network *net;
+static struct efi_simple_network_protocol *net;
 static struct efi_event *timer;
 /* IP packet ID */
 static unsigned int net_ip_id;

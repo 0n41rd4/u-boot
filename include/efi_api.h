@@ -1519,36 +1519,36 @@ struct efi_simple_network_mode {
 /* revision of the simple network protocol */
 #define EFI_SIMPLE_NETWORK_PROTOCOL_REVISION	0x00010000
 
-struct efi_simple_network {
+struct efi_simple_network_protocol {
 	u64 revision;
-	efi_status_t (EFIAPI *start)(struct efi_simple_network *this);
-	efi_status_t (EFIAPI *stop)(struct efi_simple_network *this);
-	efi_status_t (EFIAPI *initialize)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *start)(struct efi_simple_network_protocol *this);
+	efi_status_t (EFIAPI *stop)(struct efi_simple_network_protocol *this);
+	efi_status_t (EFIAPI *initialize)(struct efi_simple_network_protocol *this,
 			ulong extra_rx, ulong extra_tx);
-	efi_status_t (EFIAPI *reset)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *reset)(struct efi_simple_network_protocol *this,
 			int extended_verification);
-	efi_status_t (EFIAPI *shutdown)(struct efi_simple_network *this);
-	efi_status_t (EFIAPI *receive_filters)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *shutdown)(struct efi_simple_network_protocol *this);
+	efi_status_t (EFIAPI *receive_filters)(struct efi_simple_network_protocol *this,
 			u32 enable, u32 disable, int reset_mcast_filter,
 			ulong mcast_filter_count,
 			struct efi_mac_address *mcast_filter);
-	efi_status_t (EFIAPI *station_address)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *station_address)(struct efi_simple_network_protocol *this,
 			int reset, struct efi_mac_address *new_mac);
-	efi_status_t (EFIAPI *statistics)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *statistics)(struct efi_simple_network_protocol *this,
 			int reset, ulong *stat_size, void *stat_table);
-	efi_status_t (EFIAPI *mcastiptomac)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *mcastiptomac)(struct efi_simple_network_protocol *this,
 			int ipv6, struct efi_ip_address *ip,
 			struct efi_mac_address *mac);
-	efi_status_t (EFIAPI *nvdata)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *nvdata)(struct efi_simple_network_protocol *this,
 			int read_write, ulong offset, ulong buffer_size,
 			char *buffer);
-	efi_status_t (EFIAPI *get_status)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *get_status)(struct efi_simple_network_protocol *this,
 			u32 *int_status, void **txbuf);
-	efi_status_t (EFIAPI *transmit)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *transmit)(struct efi_simple_network_protocol *this,
 			size_t header_size, size_t buffer_size, void *buffer,
 			struct efi_mac_address *src_addr,
 			struct efi_mac_address *dest_addr, u16 *protocol);
-	efi_status_t (EFIAPI *receive)(struct efi_simple_network *this,
+	efi_status_t (EFIAPI *receive)(struct efi_simple_network_protocol *this,
 			size_t *header_size, size_t *buffer_size, void *buffer,
 			struct efi_mac_address *src_addr,
 			struct efi_mac_address *dest_addr, u16 *protocol);
