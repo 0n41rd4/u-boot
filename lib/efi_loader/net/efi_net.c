@@ -58,32 +58,7 @@ struct dhcp_entry {
 static struct dhcp_entry dhcp_cache[MAX_NUM_DHCP_ENTRIES];
 static int next_dhcp_entry;
 
-/**
- * struct efi_net_obj - EFI object representing a network interface
- *
- * @header:			EFI object header
- * @dev:			net udevice
- */
-struct efi_net_obj {
-	struct efi_object header;
-	struct udevice *dev;
-};
-
-static struct efi_net_obj *net_objs[MAX_EFI_NET_OBJS];
-
-/**
- * efi_netobj_is_active() - checks if a netobj is active in the efi subsystem
- *
- * @netobj:	pointer to efi_net_obj
- * Return:	true if active
- */
-static bool efi_netobj_is_active(struct efi_net_obj *netobj)
-{
-	if (!netobj || !efi_search_obj(&netobj->header))
-		return false;
-
-	return true;
-}
+static efi_handle_t net_objs[MAX_EFI_NET_OBJS];
 
 /**
  * efi_net_set_dhcp_ack() - take note of a selected DHCP IP address
@@ -125,7 +100,7 @@ void efi_net_set_dhcp_ack(void *pkt, int len)
 	for (i = 0; i < MAX_EFI_NET_OBJS; i++) {
 		if (net_objs[i] && net_objs[i]->dev == dev) {
 			phandler = NULL;
-			r = efi_search_protocol(&net_objs[i]->header,
+			r = efi_search_protocol(net_objs[i],
 						&efi_pxe_base_code_protocol_guid,
 						&phandler);
 			if (r == EFI_SUCCESS && phandler) {
@@ -140,17 +115,17 @@ void efi_net_set_dhcp_ack(void *pkt, int len)
 /**
  * efi_netobj_set_dp() - set device path of a netobj
  *
- * @netobj:	pointer to efi_net_obj
+ * @netobj:	handle of an EFI net device
  * @dp:		device path to set, allocated by caller
  * Return:	status code
  */
-efi_status_t efi_netobj_set_dp(struct efi_net_obj *netobj, struct efi_device_path *dp)
+efi_status_t efi_netobj_set_dp(efi_handle_t netobj, struct efi_device_path *dp)
 {
 	efi_status_t ret;
 	struct efi_handler *phandler;
 	struct efi_device_path *new_net_dp;
 
-	if (!efi_netobj_is_active(netobj))
+	if (!efi_search_obj(netobj))
 		return EFI_SUCCESS;
 
 	// Create a device path for the netobj
@@ -159,21 +134,21 @@ efi_status_t efi_netobj_set_dp(struct efi_net_obj *netobj, struct efi_device_pat
 		return EFI_OUT_OF_RESOURCES;
 
 	phandler = NULL;
-	efi_search_protocol(&netobj->header, &efi_guid_device_path, &phandler);
+	efi_search_protocol(netobj, &efi_guid_device_path, &phandler);
 
 	// If the device path protocol is not yet installed, install it
 	if (!phandler)
 		goto add;
 
 	// If it is already installed, try to update it
-	ret = efi_reinstall_protocol_interface(&netobj->header, &efi_guid_device_path,
+	ret = efi_reinstall_protocol_interface(netobj, &efi_guid_device_path,
 					       phandler->protocol_interface, new_net_dp);
 	if (ret != EFI_SUCCESS)
 		return ret;
 
 	return EFI_SUCCESS;
 add:
-	ret = efi_add_protocol(&netobj->header, &efi_guid_device_path,
+	ret = efi_add_protocol(netobj, &efi_guid_device_path,
 			       new_net_dp);
 	if (ret != EFI_SUCCESS)
 		return ret;
@@ -184,18 +159,18 @@ add:
 /**
  * efi_netobj_get_dp() - get device path of a netobj
  *
- * @netobj:	pointer to efi_net_obj
+ * @netobj:	handle to EFI net object
  * Return:	device path, NULL on error
  */
-static struct efi_device_path *efi_netobj_get_dp(struct efi_net_obj *netobj)
+static struct efi_device_path *efi_netobj_get_dp(efi_handle_t netobj)
 {
 	struct efi_handler *phandler;
 
-	if (!efi_netobj_is_active(netobj))
+	if (!efi_search_obj(netobj))
 		return NULL;
 
 	phandler = NULL;
-	efi_search_protocol(&netobj->header, &efi_guid_device_path, &phandler);
+	efi_search_protocol(netobj, &efi_guid_device_path, &phandler);
 
 	if (phandler && phandler->protocol_interface)
 		return efi_dp_dup(phandler->protocol_interface);
@@ -214,7 +189,7 @@ static struct efi_device_path *efi_netobj_get_dp(struct efi_net_obj *netobj)
 efi_status_t efi_net_do_start(struct udevice *dev)
 {
 	efi_status_t r = EFI_SUCCESS;
-	struct efi_net_obj *netobj;
+	efi_handle_t netobj;
 	struct efi_device_path *net_dp;
 #if IS_ENABLED(CONFIG_EFI_HTTP_PROTOCOL)
 	struct efi_handler *phandler;
@@ -230,7 +205,7 @@ efi_status_t efi_net_do_start(struct udevice *dev)
 		}
 	}
 
-	if (!efi_netobj_is_active(netobj))
+	if (!efi_search_obj(netobj))
 		return r;
 
 	efi_net_dp_from_dev(&net_dp, netobj->dev, true);
@@ -258,7 +233,7 @@ set_addr:
 	 * but the PXE protocol is not yet implmenented, so we add this in the meantime.
 	 */
 	pxe = NULL;
-	r = efi_search_protocol(&netobj->header,
+	r = efi_search_protocol(netobj,
 				&efi_pxe_base_code_protocol_guid,
 				&phandler);
 	if (r == EFI_SUCCESS && phandler) {
@@ -281,7 +256,7 @@ efi_status_t efi_net_register(struct udevice *dev)
 {
 	efi_status_t r;
 	int seq_num;
-	struct efi_net_obj *netobj;
+	efi_handle_t netobj;
 	struct efi_pxe_packet *dhcp_ack;
 	int i, j;
 
@@ -314,13 +289,14 @@ efi_status_t efi_net_register(struct udevice *dev)
 		return EFI_OUT_OF_RESOURCES;
 	}
 
-	netobj->dev = dev;
-
 	/* Hook net up to the device list */
-	efi_add_handle(&netobj->header);
+	efi_add_handle(netobj);
+
+	if (efi_link_dev(netobj, dev) < 0)
+		return EFI_DEVICE_ERROR;
 
 	/* Install EFI_SIMPLE_NETWORK_PROTOCOL */
-	r = efi_simple_network_install(&netobj->header, dev);
+	r = efi_simple_network_install(netobj);
 	if (r != EFI_SUCCESS)
 		goto failure_to_add_protocol;
 
@@ -339,19 +315,19 @@ efi_status_t efi_net_register(struct udevice *dev)
 	}
 
 	/* Install EFI_PXE_BASE_CODE_PROTOCOL */
-	r = efi_pxe_install(&netobj->header, dhcp_ack);
+	r = efi_pxe_install(netobj, dhcp_ack);
 	if (r != EFI_SUCCESS)
 		goto failure_to_add_protocol;
 
 #if IS_ENABLED(CONFIG_EFI_IP4_CONFIG2_PROTOCOL)
 	/* Install EFI_IP4_CONFIG2_PROTOCOL */
-	r = efi_ip4_config2_install(&netobj->header);
+	r = efi_ip4_config2_install(netobj);
 	if (r != EFI_SUCCESS)
 		goto failure_to_add_protocol;
 #endif
 #ifdef CONFIG_EFI_HTTP_PROTOCOL
 	/* Install EFI_HTTP_PROTOCOL */
-	r = efi_http_install(&netobj->header);
+	r = efi_http_install(netobj);
 	if (r != EFI_SUCCESS)
 		goto failure_to_add_protocol;
 #endif
@@ -377,7 +353,7 @@ failure_to_add_protocol:
 efi_status_t efi_net_new_dp(const char *dev, const char *server, struct udevice *udev)
 {
 	efi_status_t ret;
-	struct efi_net_obj *netobj;
+	efi_handle_t netobj;
 	struct efi_device_path *old_net_dp, *new_net_dp;
 	struct efi_device_path **dp;
 	int i;
@@ -709,7 +685,7 @@ efi_status_t efi_net_do_request(u8 *url, enum efi_http_method method, void **buf
 		if (!net_objs[i])
 			continue;
 
-		ret = efi_search_protocol(&net_objs[i]->header,
+		ret = efi_search_protocol(net_objs[i],
 					  &efi_http_service_binding_guid,
 					  &phandler);
 		if (ret == EFI_SUCCESS && phandler &&

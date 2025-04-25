@@ -680,7 +680,7 @@ efi_status_t efi_gop_register(void);
 efi_status_t efi_net_register(struct udevice *dev);
 efi_status_t efi_net_do_start(struct udevice *dev);
 /* Called by efi_net_register to install EFI_SIMPLE_NETWORK_PROTOCOL */
-efi_status_t efi_simple_network_install(const efi_handle_t handle, struct udevice *dev);
+efi_status_t efi_simple_network_install(const efi_handle_t handle);
 /* Called by efi_net_register to install EFI_PXE_BASE_CODE_PROTOCOL */
 efi_status_t efi_pxe_install(const efi_handle_t handle, struct efi_pxe_packet *dhcp_ack);
 /* Called by efi_net_register to install EFI_IP4_CONFIG2_PROTOCOL */

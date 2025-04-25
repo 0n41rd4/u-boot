@@ -758,7 +758,7 @@ out:
  * @handle:	handle to install the protocol
  * @dev:	net udevice
  */
-efi_status_t efi_simple_network_install(const efi_handle_t handle, struct udevice *dev)
+efi_status_t efi_simple_network_install(const efi_handle_t handle)
 {
 	efi_status_t r;
 	struct efi_simple_network_extended_protocol *simple_network;
@@ -767,7 +767,7 @@ efi_status_t efi_simple_network_install(const efi_handle_t handle, struct udevic
 	size_t *receive_lengths;
 	int i;
 
-	if (!dev) {
+	if (!handle || !handle->dev) {
 		/* No network device active, don't expose any */
 		return EFI_SUCCESS;
 	}
@@ -777,7 +777,7 @@ efi_status_t efi_simple_network_install(const efi_handle_t handle, struct udevic
 	if (!simple_network)
 		goto out_of_resources;
 
-	simple_network->dev = dev;
+	simple_network->dev = handle->dev;
 
 	/* Allocate an aligned transmit buffer */
 	transmit_buffer = calloc(1, PKTSIZE_ALIGN + PKTALIGN);
@@ -820,9 +820,9 @@ efi_status_t efi_simple_network_install(const efi_handle_t handle, struct udevic
 	simple_network->net.receive = efi_net_receive;
 	simple_network->net.mode = &simple_network->net_mode;
 	simple_network->net_mode.state = EFI_NETWORK_STOPPED;
-	if (dev_get_plat(dev))
+	if (dev_get_plat(handle->dev))
 		memcpy(simple_network->net_mode.current_address.mac_addr,
-		       ((struct eth_pdata *)dev_get_plat(dev))->enetaddr, 6);
+		       ((struct eth_pdata *)dev_get_plat(handle->dev))->enetaddr, 6);
 	simple_network->net_mode.hwaddr_size = ARP_HLEN;
 	simple_network->net_mode.media_header_size = ETHER_HDR_SIZE;
 	simple_network->net_mode.max_packet_size = PKTSIZE;
