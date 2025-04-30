@@ -83,18 +83,40 @@ ITS_DATA = '''
             arch = "%(sys-arch)s";
             compression = "%(fdt-comp)s";
         };
+        initrd {
+            description = "Initial RAM Disk";
+            data = /incbin/("%(initrd-fs)s");
+            type = "ramdisk";
+            compression = "%(initrd-comp)s";
+            os = "efi";
+        };
     };
 
     configurations {
         default = "config-efi-fdt";
+
+        config-efi {
+            description = "EFI FIT w/o FDT";
+            kernel = "efi";
+        };
+
         config-efi-fdt {
             description = "EFI FIT w/ FDT";
             kernel = "efi";
             fdt = "fdt";
         };
-        config-efi-nofdt {
-            description = "EFI FIT w/o FDT";
+
+        config-efi-initrd {
+            description = "EFI FIT w/ initrd";
             kernel = "efi";
+            ramdisk = "initrd";
+        };
+
+        config-efi-fdt-initrd {
+            description = "EFI FIT w/ FDT and initrd";
+            kernel = "efi";
+            fdt = "fdt";
+            ramdisk = "initrd";
         };
     };
 };
@@ -120,6 +142,7 @@ FDT_DATA = '''
 
 @pytest.mark.buildconfigspec('bootm_efi')
 @pytest.mark.buildconfigspec('BOOTEFI_HELLO_COMPILE')
+@pytest.mark.buildconfigspec('EFI_LOAD_FILE2_INITRD')
 @pytest.mark.buildconfigspec('fit')
 @pytest.mark.notbuildconfigspec('generate_acpi_table')
 @pytest.mark.requiredtool('dtc')
@@ -210,7 +233,7 @@ def test_efi_fit_launch(ubman):
 
         return os.path.join(ubman.config.build_dir, file_name)
 
-    def make_efi(fname, comp):
+    def make_efi(fname, fdtdump, initrddump, comp):
         """Create an UEFI binary.
 
         This simply copies lib/efi_loader/helloworld.efi into U-Boot
@@ -218,14 +241,22 @@ def test_efi_fit_launch(ubman):
 
         Args:
             fname -- The target file name within U-Boot build dir.
+            fdtdump -- Support FDT load and dump inside FIT EFI kernel.
+            initrddump -- Support initrd load and dump inside FIT EFI kernel.
             comp -- Flag to enable gzip compression.
         Return:
             The path of the created file.
         """
 
         bin_path = make_fpath(fname)
+        if fdtdump:
+            efi_file = 'dtbdump.efi'
+        elif initrddump:
+            efi_file = 'initrddump.efi'
+        else:
+            efi_file = 'helloworld.efi'
         utils.run_and_log(ubman,
-                          ['cp', make_fpath('lib/efi_loader/helloworld.efi'),
+                          ['cp', make_fpath(f'lib/efi_loader/{efi_file}'),
                            bin_path])
         if comp:
             utils.run_and_log(ubman, ['gzip', '-f', bin_path])
@@ -264,36 +295,76 @@ def test_efi_fit_launch(ubman):
             dtb += '.gz'
         return dtb
 
-    def make_fit(comp):
+    def make_initrd(comp):
+        """Create a sample initrd.
+
+        Creates an initrd.
+
+        Args:
+            comp -- Flag to enable gzip compression.
+        Return:
+            tuple: (initrd, crc32) where:
+                - initrd is the path of the created file.
+                - crc32 is the CRC32 checksum as an integer.
+        """
+
+        # Generate a test initrd file.
+        initrd_file = make_fpath('test-efi-initrd-file')
+        with open(initrd_file, 'w', encoding='ascii') as file:
+            file.write('Hello, world')
+
+        # Build the test FDT.
+        initrd = make_fpath('test-efi-initrd')
+        utils.run_and_log(ubman, [
+        'sh', '-c',
+        f'echo {initrd_file} | cpio -o -H newc > {initrd}'])
+        crc32 = utils.crc32_file(initrd)
+        if comp:
+            utils.run_and_log(ubman, ['gzip', '-f', initrd])
+            initrd += '.gz'
+        return initrd, crc32
+
+    def make_fit(fdtdump, initrddump, comp):
         """Create a sample FIT image.
 
         Runs 'mkimage' to create a FIT image within U-Boot build dir.
         Args:
+            fdtdump -- Support FDT load and dump inside FIT EFI kernel.
+            initrddump -- Support initrd load and dump inside FIT EFI kernel.
             comp -- Enable gzip compression for the EFI binary and FDT blob.
         Return:
-            The path of the created file.
+            The path of the created file and crc32 checksum of the initrd
         """
 
         # Generate resources referenced by ITS.
+        efi_bin = os.path.basename(make_efi('test-efi-fit.efi', fdtdump, initrddump, comp))
+        fdt_bin = os.path.basename(make_dtb('user', comp))
+        initrd_fs, crc32 = make_initrd(comp)
+        initrd_fs = os.path.basename(initrd_fs)
+        compression = 'gzip' if comp else 'none'
+        kernel_type = 'kernel' if comp else 'kernel_noload'
+
         its_params = {
-            'sys-arch': sys_arch,
-            'efi-bin': os.path.basename(make_efi('test-efi-fit-helloworld.efi', comp)),
-            'kernel-type': 'kernel' if comp else 'kernel_noload',
-            'efi-comp': 'gzip' if comp else 'none',
-            'fdt-bin': os.path.basename(make_dtb('user', comp)),
-            'fdt-comp': 'gzip' if comp else 'none',
+        'sys-arch': sys_arch,
+        'efi-bin': efi_bin,
+        'kernel-type': kernel_type,
+        'efi-comp': compression,
+        'fdt-bin': fdt_bin,
+        'fdt-comp': compression,
+        'initrd-fs': initrd_fs,
+        'initrd-comp': compression,
         }
 
         # Generate a test ITS file.
-        its_path = make_fpath('test-efi-fit-helloworld.its')
+        its_path = make_fpath('test-efi-fit.its')
         with open(its_path, 'w', encoding='ascii') as file:
             file.write(ITS_DATA % its_params)
 
         # Build the test ITS.
-        fit_path = make_fpath('test-efi-fit-helloworld.fit')
+        fit_path = make_fpath('test-efi-fit.fit')
         utils.run_and_log(
             ubman, [make_fpath('tools/mkimage'), '-f', its_path, fit_path])
-        return fit_path
+        return fit_path, crc32
 
     def load_fit_from_host(fit):
         """Load the FIT image using the 'host load' command and return its address.
@@ -357,7 +428,7 @@ def test_efi_fit_launch(ubman):
 
         return addr
 
-    def launch_efi(enable_fdt, enable_comp):
+    def launch_efi(enable_fdt, enable_initrd, enable_comp):
         """Launch U-Boot's helloworld.efi binary from a FIT image.
 
         An external image file can be downloaded from TFTP, when related
@@ -372,19 +443,21 @@ def test_efi_fit_launch(ubman):
         from the host filesystem.
 
         Once the load address is available on U-Boot console, the 'bootm'
-        command is executed for either 'config-efi-fdt' or 'config-efi-nofdt'
-        FIT configuration, depending on the value of the 'enable_fdt' function
-        argument.
+        command is executed for either 'config-efi', 'config-efi-fdt',
+        'config-efi-initrd' or 'config-efi-fdt-initrd' FIT configuration,
+        depending on the value of the 'enable_fdt' and 'enable_initrd' function
+        arguments.
 
         Eventually the 'Hello, world' message is expected in the U-Boot console.
 
         Args:
             enable_fdt -- Flag to enable using the FDT blob inside FIT image.
+            enable_initrd -- Flag to enable using an initrd inside FIT image.
             enable_comp -- Flag to enable GZIP compression on EFI and FDT
                            generated content.
         """
 
-        with ubman.log.section('FDT=%s;COMP=%s' % (enable_fdt, enable_comp)):
+        with ubman.log.section('FDT=%s;INITRD=%s;COMP=%s' % (enable_fdt, enable_initrd, enable_comp)):
             if is_sandbox:
                 fit = {
                     'dn': ubman.config.build_dir,
@@ -407,7 +480,7 @@ def test_efi_fit_launch(ubman):
                     pytest.skip('Neither "size", nor "dn" info provided in env__efi_fit_tftp_file')
 
                 # Create test FIT image.
-                fit_path = make_fit(enable_comp)
+                fit_path, crc32 = make_fit(enable_fdt, enable_initrd, enable_comp)
                 fit['fn'] = os.path.basename(fit_path)
                 fit['size'] = os.path.getsize(fit_path)
 
@@ -420,14 +493,25 @@ def test_efi_fit_launch(ubman):
             addr = load_fit_from_host(fit) if is_sandbox else load_fit_from_tftp(fit)
 
             # Select boot configuration.
-            fit_config = 'config-efi-fdt' if enable_fdt else 'config-efi-nofdt'
+            fit_config = 'config-efi'
+            fit_config = fit_config + '-fdt' if enable_fdt else fit_config
+            fit_config = fit_config + '-initrd' if enable_initrd else fit_config
 
             # Try booting.
             output = ubman.run_command('bootm %x#%s' % (addr, fit_config))
+            assert '## Application failed' not in output
             if enable_fdt:
                 assert 'Booting using the fdt blob' in output
-            assert 'Hello, world' in output
-            assert '## Application failed' not in output
+            if enable_initrd:
+                assert 'Loading ramdisk' in output
+            if enable_fdt:
+                output = ubman.run_command('dump')
+                assert 'EFI FIT Boot Test' in output
+            if enable_initrd:
+                output = ubman.run_command('load')
+                assert f"crc32: 0x{crc32:08x}" in output
+            if not enable_fdt and not enable_initrd:
+                    assert 'Hello, world' in output
             ubman.restart_uboot()
 
     # Array slice removes leading/trailing quotes.
@@ -449,16 +533,20 @@ def test_efi_fit_launch(ubman):
             ubman.config.dtb = control_dtb
 
         # Run tests
-        # - fdt OFF, gzip OFF
-        launch_efi(False, False)
-        # - fdt ON, gzip OFF
-        launch_efi(True, False)
+        # - fdt OFF, initrd OFF, gzip OFF
+        launch_efi(False, False, False)
+        # - fdt ON, initrd OFF, gzip OFF
+        launch_efi(True, False, False)
+        # - fdt OFF, initrd ON, gzip OFF
+        launch_efi(False, True, False)
 
         if is_sandbox:
-            # - fdt OFF, gzip ON
-            launch_efi(False, True)
-            # - fdt ON, gzip ON
-            launch_efi(True, True)
+            # - fdt OFF, initrd OFF, gzip ON
+            launch_efi(False, False, True)
+            # - fdt ON, initrd OFF, gzip ON
+            launch_efi(True, False, True)
+            # - fdt OFF, initrd ON, gzip ON
+            launch_efi(False, True, True)
 
     finally:
         if is_sandbox:
