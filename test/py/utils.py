@@ -15,6 +15,7 @@ import sys
 import time
 import re
 import pytest
+import zlib
 
 def md5sum_data(data):
     """Calculate the MD5 hash of some data.
@@ -50,6 +51,27 @@ def md5sum_file(fn, max_length=None):
             params = []
         data = fh.read(*params)
     return md5sum_data(data)
+
+def crc32_file(fn, max_length=None):
+    """Calculate the CRC32 checksum of the contents of a file.
+
+    Args:
+        fn: The filename of the file to calculate the checksum for.
+        max_length: The number of bytes to calculate the checksum for. If
+            the file has more bytes than this, only the first `max_length`
+            bytes will be used. If None or omitted, the entire file will be
+            used.
+
+    Returns:
+        The CRC32 checksum of the file content as an integer.
+    """
+    with open(fn, 'rb') as fh:
+        if max_length:
+            params = [max_length]
+        else:
+            params = []
+        data = fh.read(*params)
+    return zlib.crc32(data) & 0xFFFFFFFF
 
 class PersistentRandomFile:
     """Generate and store information about a persistent file containing
