@@ -48,6 +48,18 @@ For example:
         'addr': 0x40400000,                    # load address
     }
 
+    # Details regarding a httpprotocol file that may be read from a TFTP server. This
+    # variable may be omitted or set to None if TFTP testing is not possible or desired.
+    env__efi_loader_httpprotocol_file = {
+        'fn': 'lib/efi_loader/netdump.efi',              # file name
+        'size': 5058624,                                 # file length in bytes
+        'crc32': 'c2244b26',                             # CRC32 check sum
+        'addr': 0x40400000,                              # load address
+        'payload': 'http://10.0.2.2/path/to/payload',    # file uri
+        'payload_length': 6354745,                       # file length in bytes
+        'payload_crc32': 'b22e4a36',                     # CRC32 check sum
+    }
+
     # False if the helloworld EFI over HTTP boot test should be performed.
     # If HTTP boot testing is not possible or desired, set this variable to True or
     # ommit it.
@@ -199,6 +211,57 @@ def test_efi_helloworld_net_http(ubman):
         pytest.skip('helloworld.efi HTTP test is not enabled!')
 
     do_test_efi_helloworld_net(ubman, PROTO_HTTP);
+
+def do_test_efi_httpprotocol_net(ubman, proto):
+    f = ubman.config.env.get('env__efi_loader_httpprotocol_file', None)
+    if not f:
+        pytest.skip('No env__efi_loader_httpprotocol_file specified in environment')
+
+    payload = f.get('payload', None)
+    if not payload:
+        pytest.skip('No payload specified in env__efi_loader_httpprotocol_file')
+
+    ubman.run_command('setenv bootargs nocolor');
+
+    addr = fetch_file(ubman, 'env__efi_loader_httpprotocol_file', proto)
+
+    output = ubman.run_command('bootefi %x' % addr)
+    assert "NET Dump" in output
+    assert '## Application failed' not in output
+    response = ubman.run_command('wget %s' % payload, wait_for_echo=False)
+    expected_text = 'Efi Http request executed successfully'
+    assert expected_text in response
+    expected_length = f.get('payload_length', None)
+    if expected_length:
+        assert f"length: {expected_length}" in response
+    expected_crc = f.get('payload_crc32', None)
+    if expected_crc:
+        assert f"crc32: 0x{expected_crc}" in response
+    ubman.restart_uboot()
+
+@pytest.mark.buildconfigspec('of_control')
+@pytest.mark.buildconfigspec('efi_http_protocol')
+@pytest.mark.buildconfigspec('cmd_tftpboot')
+def test_efi_httpprotocol_net_tftp(ubman):
+    """Run the httpprotocol.efi binary via HTTP.
+
+    The httppotocol.efi file is downloaded from the TFTP server and executed
+    """
+
+    do_test_efi_httpprotocol_net(ubman, PROTO_TFTP);
+
+@pytest.mark.buildconfigspec('of_control')
+@pytest.mark.buildconfigspec('efi_http_protocol')
+@pytest.mark.buildconfigspec('cmd_wget')
+def test_efi_httpprotocol_net_http(ubman):
+    """Run the httpprotocol.efi binary via HTTP.
+
+    The httppotocol.efi file is downloaded from the HTTP server and executed
+    """
+    if ubman.config.env.get('env__efi_helloworld_net_http_test_skip', False):
+        pytest.skip('httpprotocol.efi HTTP test is not enabled!')
+
+    do_test_efi_httpprotocol_net(ubman, PROTO_HTTP);
 
 @pytest.mark.buildconfigspec('cmd_bootefi_hello')
 def test_efi_helloworld_builtin(ubman):
