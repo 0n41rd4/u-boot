@@ -17,6 +17,7 @@ apps-$(CONFIG_RISCV) += boothart
 apps-$(CONFIG_BOOTEFI_HELLO_COMPILE) += helloworld
 apps-$(CONFIG_GENERATE_SMBIOS_TABLE) += smbiosdump
 apps-$(CONFIG_EFI_LOAD_FILE2_INITRD) += initrddump
+apps-$(CONFIG_EFI_HTTP_PROTOCOL) += netdump
 ifeq ($(CONFIG_GENERATE_ACPI_TABLE),)
 apps-y += dtbdump
 endif
